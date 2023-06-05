@@ -26,6 +26,11 @@
 %% @private
 -module(esysevent_nif).
 
+-export([
+    bind_handle/0,
+    unbind_handle/0
+    ]).
+
 -on_load(init/0).
 
 try_paths([Last], BaseName) ->
@@ -53,3 +58,11 @@ init() ->
     end,
     SoName = try_paths(Paths1, "esysevent_nif"),
     erlang:load_nif(SoName, 0).
+
+-type errno() :: integer().
+
+-spec bind_handle() -> ok | {error, {errno(), string()}} | {error, busy}.
+bind_handle() -> error(no_nif).
+
+-spec unbind_handle() -> ok | {error, not_bound} | {error, busy}.
+unbind_handle() -> error(no_nif).

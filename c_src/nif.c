@@ -41,7 +41,7 @@ static ErlNifResourceType *lis_rsrc;
 
 struct sysev_gl {
 	ErlNifMutex		*sg_mtx;
-	sysevent_handle_t	 sg_hdl;
+	sysevent_handle_t	*sg_hdl;
 	avl_tree_t		 sg_subs;
 };
 
@@ -104,9 +104,89 @@ static ErlNifResourceTypeInit lis_rsrc_ops = {
 	.down = hdl_mon_down
 };
 
+static void
+sysevent_handler(sysevent_t *ev)
+{
+}
+
+static ERL_NIF_TERM
+enif_make_errno(ErlNifEnv *env, int eno)
+{
+	char buf[256];
+	strerror_r(eno, buf, sizeof (buf));
+	return (enif_make_tuple2(env, enif_make_uint(env, eno),
+	    enif_make_string(env, buf, ERL_NIF_LATIN1)));
+}
+
+static ERL_NIF_TERM
+nif_bind_handle(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+	ERL_NIF_TERM ret;
+
+	if (argc != 0)
+		return (enif_make_badarg(env));
+
+	enif_mutex_lock(sysev_gl.sg_mtx);
+
+	if (sysev_gl.sg_hdl == NULL) {
+		ret = enif_make_tuple2(env, enif_make_atom(env, "error"),
+		    enif_make_atom(env, "not_bound"));
+		goto out;
+	}
+
+	if (!avl_is_empty(sysev_gl.sg_subs)) {
+		ret = enif_make_tuple2(env, enif_make_atom(env, "error"),
+		    enif_make_atom(env, "busy"));
+		goto out;
+	}
+
+	sysevent_unbind_handle(sysev_gl.sg_hdl);
+	sysev_gl.sg_hdl = NULL;
+
+	ret = enif_make_atom(env, "ok");
+
+out:
+	enif_mutex_unlock(sysev_gl.sg_mtx);
+	return (ret);
+}
+
+static ERL_NIF_TERM
+nif_unbind_handle(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+	ERL_NIF_TERM ret;
+
+	if (argc != 0)
+		return (enif_make_badarg(env));
+
+	enif_mutex_lock(sysev_gl.sg_mtx);
+
+	if (sysev_gl.sg_hdl != NULL) {
+		ret = enif_make_tuple2(env, enif_make_atom(env, "error"),
+		    enif_make_atom(env, "busy"));
+		goto out;
+	}
+
+	sysev_gl.sg_hdl = sysevent_bind_handle(sysevent_handler);
+	if (sysev_gl.sg_hdl == NULL) {
+		ret = enif_make_tuple2(env, enif_make_atom(env, "error"),
+		    enif_make_errno(env, errno));
+		goto out;
+	}
+
+	ret = enif_make_atom(env, "ok");
+
+out:
+	enif_mutex_unlock(sysev_gl.sg_mtx);
+	return (ret);
+}
+
 static int
 load_cb(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
 {
+	bzero(&sysev_gl, sizeof (sysev_gl));
+	sysev_gl.sg_mtx = enif_mutex_create("sysev_gl");
+	avl_create(&sysev_gl.sg_subs, compare_sysev_subs,
+	    sizeof (struct sysev_sub), offsetof(struct sysev_sub, ss_entry));
 	lis_rsrc = enif_open_resource_type_x(env, "sysev_listener",
 	    &lis_rsrc_ops, ERL_NIF_RT_CREATE | ERLNIF_RT_TAKEOVER,
 	    NULL);
@@ -120,6 +200,8 @@ unload_cb(ErlNifEnv *env, void *priv_data)
 
 static ErlNifFunc nif_funcs[] =
 {
+	{ "bind_handle", 0,	nif_bind_handle },
+	{ "unbind_handle", 0,	nif_unbind_handle },
 };
 
 ERL_NIF_INIT(esysevent_nif, nif_funcs, load_cb, NULL, NULL, unload_cb)
