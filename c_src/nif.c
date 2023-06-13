@@ -30,9 +30,11 @@
 #include <stdlib.h>
 #include <strings.h>
 #include <string.h>
+#include <errno.h>
 
 #include <sys/types.h>
 #include <sys/list.h>
+#include <sys/avl.h>
 #include <libsysevent.h>
 
 #include "erl_nif.h"
@@ -90,18 +92,18 @@ compare_sysev_subs(const void *x, const void *y)
 static void
 listener_dtor(ErlNifEnv *env, void *arg)
 {
-	struct sysev_lis *sl = arg;
+	//struct sysev_lis *sl = arg;
 }
 
 static void
 listener_mon_down(ErlNifEnv *env, void *arg, ErlNifPid *pid, ErlNifMonitor *mon)
 {
-	struct sysev_lis *sl = arg;
+	//struct sysev_lis *sl = arg;
 }
 
 static ErlNifResourceTypeInit lis_rsrc_ops = {
-	.dtor = hdl_dtor,
-	.down = hdl_mon_down
+	.dtor = listener_dtor,
+	.down = listener_mon_down
 };
 
 static void
@@ -119,7 +121,7 @@ enif_make_errno(ErlNifEnv *env, int eno)
 }
 
 static ERL_NIF_TERM
-nif_bind_handle(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+nif_unbind_handle(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
 	ERL_NIF_TERM ret;
 
@@ -134,7 +136,7 @@ nif_bind_handle(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 		goto out;
 	}
 
-	if (!avl_is_empty(sysev_gl.sg_subs)) {
+	if (!avl_is_empty(&sysev_gl.sg_subs)) {
 		ret = enif_make_tuple2(env, enif_make_atom(env, "error"),
 		    enif_make_atom(env, "busy"));
 		goto out;
@@ -151,7 +153,7 @@ out:
 }
 
 static ERL_NIF_TERM
-nif_unbind_handle(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+nif_bind_handle(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
 	ERL_NIF_TERM ret;
 
@@ -188,7 +190,7 @@ load_cb(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
 	avl_create(&sysev_gl.sg_subs, compare_sysev_subs,
 	    sizeof (struct sysev_sub), offsetof(struct sysev_sub, ss_entry));
 	lis_rsrc = enif_open_resource_type_x(env, "sysev_listener",
-	    &lis_rsrc_ops, ERL_NIF_RT_CREATE | ERLNIF_RT_TAKEOVER,
+	    &lis_rsrc_ops, ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER,
 	    NULL);
 	return (0);
 }
